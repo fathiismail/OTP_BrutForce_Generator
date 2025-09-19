@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interval → TXT Number Generator (Offline)</title>
+  <style>
+    :root { --bg:#0b0f14; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22d3ee; --ok:#10b981; --warn:#f59e0b; --err:#ef4444; }
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:linear-gradient(180deg,#0b0f14,#0b1220);color:var(--text)}
+    .wrap{max-width:860px;margin:40px auto;padding:24px}
+    .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    h1{margin:0 0 4px;font-size:28px}
+    p.lead{margin:0 0 18px;color:var(--muted)}
+    .grid{display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+    .col-6{grid-column:span 6}
+    .col-4{grid-column:span 4}
+    .col-12{grid-column:span 12}
+    label{display:block;font-weight:600;margin:6px 0 6px}
+    input[type="number"], input[type="text"]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:var(--text)}
+    input[type="checkbox"]{transform:scale(1.15);margin-right:8px}
+    .row{display:flex;align-items:center;gap:10px}
+    .btn{background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;color:#001319;padding:12px 16px;border-radius:12px;font-weight:700;cursor:pointer}
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .ghost{background:#0b1220;border:1px solid #1f2a3a;color:var(--text)}
+    .hint{color:var(--muted);font-size:12px;margin-top:6px}
+    .stat{margin-top:14px;padding:12px;border-radius:12px;background:#0b1220;border:1px dashed #1f2a3a}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+    footer{margin-top:16px;color:var(--muted);font-size:12px}
+    code{background:#0b1220;border:1px solid #1f2a3a;padding:2px 6px;border-radius:6px}
+    @media (max-width:760px){.col-6,.col-4{grid-column:span 12}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Interval → TXT Number Generator</h1>
+      <p class="lead">Offline tool to generate a <code>.txt</code> file listing numbers in a range. Fast, no network, works entirely in your browser.</p>
+
+      <form id="genForm" onsubmit="return false;">
+        <div class="grid">
+          <div class="col-6">
+            <label for="start">Start (inclusive)</label>
+            <input id="start" name="start" type="number" value="0" step="1" required />
+          </div>
+          <div class="col-6">
+            <label for="end">End (inclusive)</label>
+            <input id="end" name="end" type="number" value="999999" step="1" required />
+          </div>
+          <div class="col-4">
+            <label for="step">Step</label>
+            <input id="step" name="step" type="number" value="1" min="1" step="1" />
+            <div class="hint">Usually <code>1</code></div>
+          </div>
+          <div class="col-4">
+            <label for="prefix">Optional prefix</label>
+            <input id="prefix" name="prefix" type="text" placeholder="e.g. X" />
+            <div class="hint">Leave empty for numbers only</div>
+          </div>
+          <div class="col-4">
+            <label for="pad">Zero‑pad width (optional)</label>
+            <input id="pad" name="pad" type="number" min="0" step="1" placeholder="e.g. 6" />
+            <div class="hint">If set, pads numbers to this width</div>
+          </div>
+          <div class="col-12 row">
+            <button id="btnPreview" class="btn ghost" type="button">Preview 10 lines</button>
+            <button id="btnGen" class="btn" type="button">Generate .txt</button>
+          </div>
+        </div>
+      </form>
+
+      <div id="stats" class="stat">Ready.</div>
+      <pre id="preview" class="stat" style="white-space:pre-wrap;max-height:220px;overflow:auto;display:none"></pre>
+      <footer>
+        Tip: Generating ~1,000,000 lines is fine on a modern machine. For very large outputs, keep other tabs minimal.
+      </footer>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const els = {
+    start: document.getElementById('start'),
+    end: document.getElementById('end'),
+    step: document.getElementById('step'),
+    prefix: document.getElementById('prefix'),
+    pad: document.getElementById('pad'),
+    btnGen: document.getElementById('btnGen'),
+    btnPrev: document.getElementById('btnPreview'),
+    stats: document.getElementById('stats'),
+    preview: document.getElementById('preview'),
+  };
+
+  const HARD_CAP_LINES = 5_000_000; // safety cap to avoid freezing low‑RAM machines
+
+  function fmt(n){
+    return n.toLocaleString(undefined);
+  }
+
+  function validate(){
+    const start = Number(els.start.value);
+    const end = Number(els.end.value);
+    const step = Math.max(1, Number(els.step.value) || 1);
+    if (!Number.isFinite(start) || !Number.isFinite(end))
+      return { ok:false, msg:'Start/End must be numbers.' };
+    if (end < start)
+      return { ok:false, msg:'End must be ≥ Start.' };
+    const lines = Math.floor((end - start) / step) + 1;
+    if (lines > HARD_CAP_LINES)
+      return { ok:false, msg:`Range produces ${fmt(lines)} lines which exceeds the cap of ${fmt(HARD_CAP_LINES)}. Reduce the range or increase step.` };
+    return { ok:true, start, end, step, lines };
+  }
+
+  function lineFor(i, prefix, pad){
+    let num = String(i);
+    if (pad && pad > 0) num = num.padStart(pad, '0');
+    return (prefix || '') + num + "\n";
+  }
+
+  function buildBlob(start, end, step, prefix, pad){
+    // Build in chunks to reduce peak memory
+    const CHUNK = 100_000;
+    const parts = [];
+    let count = 0;
+    for (let i = start; i <= end; i += step){
+      parts.push(lineFor(i, prefix, pad));
+      count++;
+      if (count % CHUNK === 0){
+        parts.push(''); // boundary to help engines flush
+      }
+    }
+    return new Blob(parts, { type: 'text/plain;charset=utf-8' });
+  }
+
+  function approxSizeBytes(lines, prefixLen, pad){
+    // Rough estimate: digits vary; assume avg 7 for millions, plus prefixLen + newline
+    return Math.max(1, lines) * (prefixLen + Math.max(1,pad||1) + 1);
+  }
+
+  function setStatus(html){ els.stats.innerHTML = html; }
+
+  els.btnPrev.addEventListener('click', () => {
+    const v = validate();
+    if (!v.ok){ setStatus(`<span class="err">${v.msg}</span>`); return; }
+    const { start, end, step } = v;
+    const prefix = els.prefix.value || '';
+    const pad = Number(els.pad.value) || 0;
+    let out = '';
+    let printed = 0;
+    for (let i = start; i <= end && printed < 10; i += step){
+      out += lineFor(i, prefix, pad);
+      printed++;
+    }
+    els.preview.style.display = 'block';
+    els.preview.textContent = out.trimEnd();
+    setStatus(`<span class="ok">Preview ready.</span> Showing first ${fmt(printed)} lines.`);
+  });
+
+  els.btnGen.addEventListener('click', () => {
+    const v = validate();
+    if (!v.ok){ setStatus(`<span class="err">${v.msg}</span>`); return; }
+    const { start, end, step, lines } = v;
+    const prefix = els.prefix.value || '';
+    const pad = Number(els.pad.value) || 0;
+
+    els.btnGen.disabled = true; els.btnPrev.disabled = true; setStatus('Generating…');
+    // Give UI a tick to repaint
+    setTimeout(() => {
+      const blob = buildBlob(start, end, step, prefix, pad);
+      const name = `${prefix?prefix:'numbers_'}${start}_to_${end}_step${step}${pad?`_pad${pad}`:''}.txt`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click();
+      URL.revokeObjectURL(url); a.remove();
+      els.btnGen.disabled = false; els.btnPrev.disabled = false;
+      const kb = (blob.size/1024).toFixed(1), mb = (blob.size/1024/1024).toFixed(1);
+      setStatus(`<span class="ok">Done.</span> Lines: <b>${fmt(lines)}</b> · Estimated size: ~${fmt(mb)} MB (${fmt(kb)} KB).`);
+    }, 30);
+  });
+})();
+</script>
+</body>
+</html>
